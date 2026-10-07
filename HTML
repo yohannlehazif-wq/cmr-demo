@@ -341,4 +341,711 @@
                 <p class="text-xs text-slate-500">Document généré automatiquement</p>
                 <p class="text-xs font-bold text-teal-800">RESTEV Prévention</p>
             </div>
-  
+            <div class="text-right">
+                <p class="text-xs text-slate-500">Cachet / Visa du Service Prévention</p>
+                <div class="w-32 h-16 border border-dashed border-slate-400 mt-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HELP MODAL -->
+    <div id="modal-help" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md hidden">
+        <div class="glass-panel max-w-md w-full p-6 rounded-3xl shadow-2xl border border-slate-700">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-circle-info text-restev-500"></i> Aide & Navigation
+                </h3>
+                <button onclick="closeHelpModal()" class="text-slate-400 hover:text-white p-1">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3 text-xs text-slate-300 mb-6">
+                <p><strong class="text-white">Objectif :</strong> Repérer les 5 situations à risque dans l'atelier et apprendre les gestes de prévention RESTEV.</p>
+                <div class="p-3 bg-slate-900/80 rounded-xl space-y-2 font-mono text-[11px]">
+                    <div class="flex justify-between"><span class="text-slate-400">Rotation 3D :</span> <span class="text-restev-400">Clic gauche + Glisser</span></div>
+                    <div class="flex justify-between"><span class="text-slate-400">Zoom :</span> <span class="text-restev-400">Molette de la souris</span></div>
+                    <div class="flex justify-between"><span class="text-slate-400">Déplacement :</span> <span class="text-restev-400">Clic droit / Pan</span></div>
+                    <div class="flex justify-between"><span class="text-slate-400">Détecter un risque :</span> <span class="text-restev-400">Clic direct sur l'objet</span></div>
+                </div>
+            </div>
+
+            <button onclick="closeHelpModal()" class="w-full py-2.5 rounded-xl bg-slate-800 text-white font-bold text-xs uppercase tracking-wider">
+                Fermer
+            </button>
+        </div>
+    </div>
+
+    <!-- 3D CANVAS CONTAINER -->
+    <div id="canvas-container" class="w-full h-full absolute inset-0 z-10"></div>
+
+    <script>
+        /* STATE & HAZARD DATABASE */
+        const state = {
+            started: false,
+            audioEnabled: true,
+            startTime: null,
+            timerInterval: null,
+            foundHazards: new Set(),
+            totalHazards: 5,
+            scene: null,
+            camera: null,
+            renderer: null,
+            controls: null,
+            raycaster: new THREE.Raycaster(),
+            mouse: new THREE.Vector2(),
+            interactiveObjects: []
+        };
+
+        const hazardsData = {
+            1: {
+                id: 1,
+                title: "Bidon de Solvant Chimique Renversé Sans Étiquette",
+                category: "Risque Chimique & FDS",
+                categoryClass: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+                description: "Un fût contenant un produit solvant volatil s'est renversé au sol. Aucune étiquette SGH/CLP n'est présente sur le bidon et aucune FDS n'est disponible à proximité.",
+                impact: "Risque d'inhalation de vapeurs toxiques, de brûlures cutanées ou d'incendie dû au manque d'identification de la substance.",
+                regulation: "Code du Travail Art. R4412-127 : Tout récipient de produit chimique doit obligatoirement présenter un étiquetage conforme indiquant les pictogrammes de danger.",
+                prevention: "Balisage et absorption immédiate du produit. Imposer le réétiquetage des contenants et mettre la Fiche de Données de Sécurité (FDS) à disposition du personnel."
+            },
+            2: {
+                id: 2,
+                title: "Câble Électrique Dénudé près d'une Flaque d'Eau",
+                category: "Risque Électrique & Électrocution",
+                categoryClass: "bg-rose-500/20 text-rose-300 border-rose-500/30",
+                description: "Un câble réseau d'alimentation endommagé laisse apparaître ses conducteurs en cuivre sous tension directement à proximité d'une flaque d'eau.",
+                impact: "Risque élevé d'électrisation ou d'électrocution mortelle pour toute personne marchant dans la zone conductrice.",
+                regulation: "Code du Travail Art. R4226-1 : Les installations électriques doivent être isolées et maintenues en parfait état pour prévenir tout contact direct ou indirect.",
+                prevention: "Consignation électrique immédiate au disjoncteur. Remplacement du câble et séchage/résolution de la fuite d'eau par les services de maintenance."
+            },
+            3: {
+                id: 3,
+                title: "Escabeau Instable Posé sur une Surface Inclinée",
+                category: "Risque de Chute de Hauteur",
+                categoryClass: "bg-orange-500/20 text-orange-300 border-orange-500/30",
+                description: "Un escabeau est déployé de manière bancale sur des cales volantes en bois mal positionnées à côté d'un rayonnage haut.",
+                impact: "Basculement soudain de l'équipement entraînant une chute de hauteur avec risques de fractures graves ou traumatismes crâniens.",
+                regulation: "Code du Travail Art. R4323-63 : Les équipements de travail en hauteur doivent être installés sur des appuis stables et solides.",
+                prevention: "Interdire les calages improvisés. Utiliser un équipement à niveau réglable ou une plateforme individuelle roulante sécurisée (PIRL)."
+            },
+            4: {
+                id: 4,
+                title: "Empilement Instable de Cartons Lourds prêt à s'Effondrer",
+                category: "Risque Ergonomie & Manutention",
+                categoryClass: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
+                description: "Une pile disproportionnée de lourdes caisses est gerbée de travers sans arrimage sur une zone d'allée.",
+                impact: "Écrasement d'un opérateur lors de l'effondrement ou troubles musculo-squelettiques (TMS) liés à la manutention de charges trop hautes.",
+                regulation: "INRS ED 6161 : La hauteur de stockage des charges doit être adaptée à la résistance des emballages et à la stabilité naturelle.",
+                prevention: "Dépiler la zone, respecter les hauteurs maximales de gerbage et former le personnel aux gestes et postures de manutention manuelle."
+            },
+            5: {
+                id: 5,
+                title: "Voie de Circulation Obstruée & EPI Abandonnés au Sol",
+                category: "Obstacle / Chute de plein pied & EPI",
+                categoryClass: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+                description: "L'allée piétonne matérialisée est encombrée par des palettes en bois. Des lunettes de protection cassées et un casque traînent par terre.",
+                impact: "Chute de plein pied, trébuchement et détérioration des Équipements de Protection Individuelle (EPI) indispensables.",
+                regulation: "Code du Travail Art. R4224-3 : Les lieux de travail doivent être maintenus dégagés et propres en permanence.",
+                prevention: "Ranger immédiatement les palettes dans la zone de stockage dédiée et mettre en place des supports muraux de rangement pour les EPI."
+            }
+        };
+
+        /* WEB AUDIO API SOUND SYSTEM */
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playSound(type) {
+            if (!state.audioEnabled) return;
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            const now = audioCtx.currentTime;
+
+            if (type === 'found') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(440, now);
+                osc.frequency.exponentialRampToValueAtTime(880, now + 0.2);
+                gain.gain.setValueAtTime(0.2, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+                osc.start(now);
+                osc.stop(now + 0.35);
+            } else if (type === 'victory') {
+                [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => {
+                    const subOsc = audioCtx.createOscillator();
+                    const subGain = audioCtx.createGain();
+                    subOsc.connect(subGain);
+                    subGain.connect(audioCtx.destination);
+                    subOsc.frequency.setValueAtTime(f, now + i * 0.08);
+                    subGain.gain.setValueAtTime(0.15, now + i * 0.08);
+                    subGain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.08 + 0.4);
+                    subOsc.start(now + i * 0.08);
+                    subOsc.stop(now + i * 0.08 + 0.4);
+                });
+            } else if (type === 'click') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(300, now);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+                osc.start(now);
+                osc.stop(now + 0.05);
+            }
+        }
+
+        /* THREE.JS SCENE CREATION & GEOMETRY */
+        function init3DScene() {
+            const container = document.getElementById('canvas-container');
+            
+            // Scene
+            state.scene = new THREE.Scene();
+            state.scene.background = new THREE.Color(0x0f172a);
+            state.scene.fog = new THREE.FogExp2(0x0f172a, 0.035);
+
+            // Camera
+            state.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+            state.camera.position.set(0, 5, 11);
+
+            // Renderer with WebXR support
+            state.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "highPerformance" });
+            state.renderer.setSize(window.innerWidth, window.innerHeight);
+            state.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            state.renderer.shadowMap.enabled = true;
+            state.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            state.renderer.xr.enabled = true;
+            container.appendChild(state.renderer.domElement);
+
+            // WebXR VR Button
+            document.body.appendChild(THREE.VRButton.createButton(state.renderer));
+
+            // Controls
+            state.controls = new THREE.OrbitControls(state.camera, state.renderer.domElement);
+            state.controls.enableDamping = true;
+            state.controls.dampingFactor = 0.05;
+            state.controls.maxPolarAngle = Math.PI / 2 - 0.05;
+            state.controls.minDistance = 2;
+            state.controls.maxDistance = 18;
+            state.controls.target.set(0, 1.5, 0);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x94a3b8, 0.6);
+            state.scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+            dirLight.position.set(-6, 12, 6);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 1024;
+            dirLight.shadow.mapSize.height = 1024;
+            dirLight.shadow.camera.near = 0.5;
+            dirLight.shadow.camera.far = 25;
+            state.scene.add(dirLight);
+
+            // Interior SpotLight
+            const spotLight = new THREE.SpotLight(0x14b8a6, 1.2);
+            spotLight.position.set(0, 8, 0);
+            spotLight.angle = Math.PI / 3;
+            spotLight.penumbra = 0.8;
+            state.scene.add(spotLight);
+
+            // BUILD ENVIRONMENT
+            buildWorkshopRoom();
+            buildProps();
+            buildHazards();
+
+            // Event Listeners
+            window.addEventListener('resize', onWindowResize);
+            state.renderer.domElement.addEventListener('pointerdown', onPointerDown);
+
+            // Animation Loop
+            state.renderer.setAnimationLoop(animate);
+        }
+
+        function buildWorkshopRoom() {
+            // Floor
+            const floorGeo = new THREE.PlaneGeometry(24, 20);
+            const floorMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.8, metalness: 0.2 });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            state.scene.add(floor);
+
+            // Safety Line Mat
+            const lineMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
+            const line1 = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 18), lineMat);
+            line1.rotation.x = -Math.PI / 2;
+            line1.position.set(-2, 0.01, 0);
+            state.scene.add(line1);
+
+            const line2 = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 18), lineMat);
+            line2.rotation.x = -Math.PI / 2;
+            line2.position.set(2, 0.01, 0);
+            state.scene.add(line2);
+
+            // Back Wall
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 });
+            const backWall = new THREE.Mesh(new THREE.PlaneGeometry(24, 8), wallMat);
+            backWall.position.set(0, 4, -10);
+            backWall.receiveShadow = true;
+            state.scene.add(backWall);
+
+            // Left Wall
+            const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(20, 8), wallMat);
+            leftWall.rotation.y = Math.PI / 2;
+            leftWall.position.set(-12, 4, 0);
+            leftWall.receiveShadow = true;
+            state.scene.add(leftWall);
+
+            // Right Wall
+            const rightWall = new THREE.Mesh(new THREE.PlaneGeometry(20, 8), wallMat);
+            rightWall.rotation.y = -Math.PI / 2;
+            rightWall.position.set(12, 4, 0);
+            rightWall.receiveShadow = true;
+            state.scene.add(rightWall);
+
+            // RESTEV Banner on Wall
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, 0, 512, 256);
+            ctx.fillStyle = '#0d9488';
+            ctx.fillRect(10, 10, 492, 236);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 36px sans-serif';
+            ctx.fillText('RESTEV - SANTE AU TRAVAIL', 30, 80);
+            ctx.font = '22px sans-serif';
+            ctx.fillText('Espace Adherents - Prévention des Risques', 30, 130);
+            ctx.fillText('1. Repérer - 2. Évaluer - 3. Corriger', 30, 180);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            const posterGeo = new THREE.PlaneGeometry(5, 2.5);
+            const posterMat = new THREE.MeshBasicMaterial({ map: texture });
+            const poster = new THREE.Mesh(posterGeo, posterMat);
+            poster.position.set(0, 5.5, -9.9);
+            state.scene.add(poster);
+        }
+
+        function buildProps() {
+            // CNC Heavy Machine (Center Back)
+            const machineGroup = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.BoxGeometry(3.5, 2.2, 1.8), new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.5 }));
+            body.position.y = 1.1;
+            body.castShadow = true;
+            machineGroup.add(body);
+
+            const screen = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.6, 0.1), new THREE.MeshStandardMaterial({ color: 0x0284c7, emissive: 0x0284c7, emissiveIntensity: 0.3 }));
+            screen.position.set(1, 1.6, 0.95);
+            machineGroup.add(screen);
+
+            machineGroup.position.set(-6, 0, -6);
+            state.scene.add(machineGroup);
+
+            // Workbench (Right)
+            const benchGroup = new THREE.Group();
+            const top = new THREE.Mesh(new THREE.BoxGeometry(4, 0.15, 1.6), new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.6 }));
+            top.position.y = 1;
+            top.castShadow = true;
+            benchGroup.add(top);
+
+            const legMat = new THREE.MeshStandardMaterial({ color: 0x1e293b });
+            [[-1.8, -0.6], [1.8, -0.6], [-1.8, 0.6], [1.8, 0.6]].forEach(p => {
+                const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1, 0.12), legMat);
+                leg.position.set(p[0], 0.5, p[1]);
+                benchGroup.add(leg);
+            });
+
+            benchGroup.position.set(6, 0, -2);
+            state.scene.add(benchGroup);
+
+            // Storage Shelves (Left wall)
+            const rackGroup = new THREE.Group();
+            const shelfMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.4 });
+            [0.5, 1.8, 3.1].forEach(y => {
+                const shelf = new THREE.Mesh(new THREE.BoxGeometry(0.1, 3.5, 1.2), shelfMat);
+                shelf.rotation.y = Math.PI / 2;
+                shelf.position.y = y;
+                rackGroup.add(shelf);
+            });
+            rackGroup.position.set(-11, 0, 1);
+            state.scene.add(rackGroup);
+        }
+
+        function buildHazards() {
+            // HAZARD 1: Chemical Drum Overturned
+            const h1Group = new THREE.Group();
+            h1Group.userData = { hazardId: 1 };
+
+            const drum = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.45, 0.45, 1.3, 16),
+                new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.4 })
+            );
+            drum.rotation.z = Math.PI / 2;
+            drum.position.y = 0.45;
+            drum.castShadow = true;
+            h1Group.add(drum);
+
+            // Spill puddle
+            const puddle = new THREE.Mesh(
+                new THREE.CircleGeometry(0.9, 16),
+                new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.1, opacity: 0.85, transparent: true })
+            );
+            puddle.rotation.x = -Math.PI / 2;
+            puddle.position.set(0.6, 0.01, 0);
+            h1Group.add(puddle);
+
+            // Glowing Indicator Halo
+            const halo1 = createHaloRing();
+            h1Group.add(halo1);
+
+            h1Group.position.set(7, 0, 2);
+            state.scene.add(h1Group);
+            registerInteractive(h1Group);
+
+
+            // HAZARD 2: Bare Cable & Water Puddle
+            const h2Group = new THREE.Group();
+            h2Group.userData = { hazardId: 2 };
+
+            const waterPuddle = new THREE.Mesh(
+                new THREE.CircleGeometry(1.1, 16),
+                new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.05, metalness: 0.9 })
+            );
+            waterPuddle.rotation.x = -Math.PI / 2;
+            waterPuddle.position.y = 0.01;
+            h2Group.add(waterPuddle);
+
+            // Cable
+            const cable = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.04, 0.04, 2.5, 8),
+                new THREE.MeshBasicMaterial({ color: 0x0f172a })
+            );
+            cable.rotation.z = Math.PI / 2.2;
+            cable.position.set(0, 0.04, 0);
+            h2Group.add(cable);
+
+            // Exposed Spark Center
+            const spark = new THREE.Mesh(
+                new THREE.SphereGeometry(0.12, 8, 8),
+                new THREE.MeshBasicMaterial({ color: 0xef4444 })
+            );
+            spark.position.set(0.2, 0.08, 0);
+            h2Group.add(spark);
+
+            const halo2 = createHaloRing();
+            h2Group.add(halo2);
+
+            h2Group.position.set(-1, 0, -3);
+            state.scene.add(h2Group);
+            registerInteractive(h2Group);
+
+
+            // HAZARD 3: Unstable Stepladder
+            const h3Group = new THREE.Group();
+            h3Group.userData = { hazardId: 3 };
+
+            const ladderMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8 });
+            const side1 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 2.4, 0.06), ladderMat);
+            side1.position.set(-0.35, 1.2, 0);
+            h3Group.add(side1);
+
+            const side2 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 2.4, 0.06), ladderMat);
+            side2.position.set(0.35, 1.2, 0);
+            h3Group.add(side2);
+
+            // Steps
+            for (let y = 0.4; y <= 2.0; y += 0.4) {
+                const step = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.04, 0.06), ladderMat);
+                step.position.set(0, y, 0);
+                h3Group.add(step);
+            }
+
+            // Crooked shim base
+            const shim = new THREE.Mesh(
+                new THREE.BoxGeometry(0.4, 0.2, 0.4),
+                new THREE.MeshStandardMaterial({ color: 0x78350f })
+            );
+            shim.position.set(-0.35, 0.1, 0);
+            shim.rotation.z = 0.2;
+            h3Group.add(shim);
+
+            h3Group.rotation.z = -0.18; // Tilted angle
+            const halo3 = createHaloRing();
+            h3Group.add(halo3);
+
+            h3Group.position.set(-10, 0, 1.5);
+            state.scene.add(h3Group);
+            registerInteractive(h3Group);
+
+
+            // HAZARD 4: Collapsing Cardboard Stack
+            const h4Group = new THREE.Group();
+            h4Group.userData = { hazardId: 4 };
+
+            const boxMat = new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.8 });
+            
+            const b1 = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 0.8), boxMat);
+            b1.position.set(0, 0.35, 0);
+            h4Group.add(b1);
+
+            const b2 = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.65, 0.75), boxMat);
+            b2.position.set(0.1, 1.0, 0.05);
+            b2.rotation.y = 0.2;
+            h4Group.add(b2);
+
+            const b3 = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.6, 0.7), boxMat);
+            b3.position.set(0.3, 1.6, 0.1);
+            b3.rotation.z = 0.25; // Leaning dangerously
+            h4Group.add(b3);
+
+            const halo4 = createHaloRing();
+            h4Group.add(halo4);
+
+            h4Group.position.set(4, 0, -6);
+            state.scene.add(h4Group);
+            registerInteractive(h4Group);
+
+
+            // HAZARD 5: Blocked Walkway & PPE on Floor
+            const h5Group = new THREE.Group();
+            h5Group.userData = { hazardId: 5 };
+
+            // Wooden Pallet
+            const palletMat = new THREE.MeshStandardMaterial({ color: 0x854d0e, roughness: 0.9 });
+            const pallet = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.2, 1.2), palletMat);
+            pallet.position.y = 0.1;
+            h5Group.add(pallet);
+
+            // Safety Helmet on ground
+            const helmet = new THREE.Mesh(
+                new THREE.SphereGeometry(0.22, 12, 12, 0, Math.PI * 2, 0, Math.PI / 1.8),
+                new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.3 })
+            );
+            helmet.position.set(-0.8, 0.15, 0.4);
+            helmet.rotation.x = Math.PI;
+            h5Group.add(helmet);
+
+            const halo5 = createHaloRing();
+            h5Group.add(halo5);
+
+            h5Group.position.set(-2, 0, 4);
+            state.scene.add(h5Group);
+            registerInteractive(h5Group);
+        }
+
+        /* Helper to create pulsing ring halo around hazards */
+        function createHaloRing() {
+            const ringGeo = new THREE.RingGeometry(0.8, 1.0, 24);
+            const ringMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.rotation.x = -Math.PI / 2;
+            ring.position.y = 0.02;
+            ring.name = "haloRing";
+            return ring;
+        }
+
+        /* Register Group Mesh and children for Raycasting */
+        function registerInteractive(group) {
+            group.traverse(child => {
+                if (child.isMesh) {
+                    child.userData = group.userData;
+                    state.interactiveObjects.push(child);
+                }
+            });
+        }
+
+        function onPointerDown(event) {
+            if (!state.started) return;
+
+            state.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            state.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            state.raycaster.setFromCamera(state.mouse, state.camera);
+            const intersects = state.raycaster.intersectObjects(state.interactiveObjects);
+
+            if (intersects.length > 0) {
+                const hitObject = intersects[0].object;
+                const hazardId = hitObject.userData.hazardId;
+                if (hazardId) {
+                    handleHazardFound(hazardId);
+                }
+            }
+        }
+
+        function handleHazardFound(id) {
+            const isNew = !state.foundHazards.has(id);
+            state.foundHazards.add(id);
+
+            playSound('found');
+
+            // Update 3D Halo color to green
+            state.scene.traverse(obj => {
+                if (obj.userData && obj.userData.hazardId === id) {
+                    obj.traverse(child => {
+                        if (child.name === "haloRing") {
+                            child.material.color.setHex(0x10b981); // Green solved
+                        }
+                    });
+                }
+            });
+
+            // Update Score
+            document.getElementById('score-text').innerText = `${state.foundHazards.size} / ${state.totalHazards}`;
+
+            // Show Pedagogical Modal
+            const data = hazardsData[id];
+            document.getElementById('hazard-category-badge').innerText = data.category;
+            document.getElementById('hazard-category-badge').className = `px-3.5 py-1 rounded-full text-xs font-extrabold uppercase tracking-wider border ${data.categoryClass}`;
+            document.getElementById('hazard-step-text').innerText = `${state.foundHazards.size} / ${state.totalHazards} Identifié${state.foundHazards.size > 1 ? 's' : ''}`;
+            document.getElementById('hazard-title').innerText = data.title;
+            document.getElementById('hazard-description').innerText = data.description;
+            document.getElementById('hazard-impact').innerText = data.impact;
+            document.getElementById('hazard-regulation').innerText = data.regulation;
+            document.getElementById('hazard-prevention').innerText = data.prevention;
+
+            document.getElementById('modal-hazard').classList.remove('hidden');
+
+            renderHistoryList();
+        }
+
+        function closeHazardModal() {
+            playSound('click');
+            document.getElementById('modal-hazard').classList.add('hidden');
+
+            if (state.foundHazards.size === state.totalHazards) {
+                setTimeout(triggerVictory, 300);
+            }
+        }
+
+        function triggerVictory() {
+            clearInterval(state.timerInterval);
+            playSound('victory');
+            document.getElementById('modal-victory').classList.remove('hidden');
+        }
+
+        function startSimulation() {
+            playSound('click');
+            document.getElementById('modal-welcome').classList.add('hidden');
+            state.started = true;
+            state.startTime = Date.now();
+            state.timerInterval = setInterval(updateTimer, 1000);
+            renderHistoryList();
+        }
+
+        function updateTimer() {
+            if (!state.startTime) return;
+            const elapsed = Math.floor((Date.now() - state.startTime) / 1000);
+            const m = Math.floor(elapsed / 60).toString().padStart(2, '0');
+            const s = (elapsed % 60).toString().padStart(2, '0');
+            const timeStr = `${m}:${s}`;
+            document.getElementById('timer-text').innerText = timeStr;
+            document.getElementById('final-time').innerText = timeStr;
+            document.getElementById('cert-time-display').innerText = timeStr;
+        }
+
+        function renderHistoryList() {
+            const container = document.getElementById('history-list');
+            container.innerHTML = '';
+
+            Object.values(hazardsData).forEach(hazard => {
+                const isFound = state.foundHazards.has(hazard.id);
+                const item = document.createElement('div');
+                item.className = `p-3.5 rounded-2xl border transition ${isFound ? 'bg-slate-900/90 border-emerald-500/40' : 'bg-slate-900/40 border-slate-800 opacity-60'}`;
+                item.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-white">${hazard.title}</span>
+                        <i class="fa-solid ${isFound ? 'fa-circle-check text-emerald-400' : 'fa-circle-dot text-slate-600'} text-base"></i>
+                    </div>
+                    <span class="text-[10px] uppercase font-bold text-slate-400 block mt-1">${hazard.category}</span>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        function toggleHistoryDrawer() {
+            playSound('click');
+            const drawer = document.getElementById('drawer-history');
+            drawer.classList.toggle('translate-x-full');
+        }
+
+        function printCertificate() {
+            playSound('click');
+            const nameInput = document.getElementById('participant-name').value.trim();
+            document.getElementById('cert-name-display').innerText = nameInput || "Participant Adhérent RESTEV";
+            window.print();
+        }
+
+        function resetCameraView() {
+            playSound('click');
+            state.camera.position.set(0, 5, 11);
+            state.controls.target.set(0, 1.5, 0);
+        }
+
+        function toggleAudio() {
+            state.audioEnabled = !state.audioEnabled;
+            const icon = document.getElementById('sound-icon');
+            icon.className = state.audioEnabled ? 'fa-solid fa-volume-high text-restev-500' : 'fa-solid fa-volume-xmark text-slate-500';
+        }
+
+        function showHelpModal() {
+            playSound('click');
+            document.getElementById('modal-help').classList.remove('hidden');
+        }
+
+        function closeHelpModal() {
+            playSound('click');
+            document.getElementById('modal-help').classList.add('hidden');
+        }
+
+        function resetSimulation() {
+            playSound('click');
+            state.foundHazards.clear();
+            clearInterval(state.timerInterval);
+            state.startTime = Date.now();
+            
+            document.getElementById('score-text').innerText = `0 / ${state.totalHazards}`;
+            document.getElementById('timer-text').innerText = '00:00';
+            
+            document.getElementById('modal-victory').classList.add('hidden');
+            document.getElementById('modal-hazard').classList.add('hidden');
+            document.getElementById('modal-welcome').classList.remove('hidden');
+
+            // Reset halos in scene
+            state.scene.traverse(obj => {
+                if (obj.name === "haloRing") {
+                    obj.material.color.setHex(0xf59e0b);
+                }
+            });
+
+            resetCameraView();
+            renderHistoryList();
+        }
+
+        function onWindowResize() {
+            state.camera.aspect = window.innerWidth / window.innerHeight;
+            state.camera.updateProjectionMatrix();
+            state.renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate(timestamp) {
+            // Pulsate halos
+            if (state.scene) {
+                state.scene.traverse(obj => {
+                    if (obj.name === "haloRing") {
+                        const s = 1 + Math.sin(timestamp * 0.005) * 0.15;
+                        obj.scale.set(s, s, s);
+                    }
+                });
+            }
+
+            state.controls.update();
+            state.renderer.render(state.scene, state.camera);
+        }
+
+        // Initialize 3D Application on window load
+        window.onload = function() {
+            init3DScene();
+        };
+    </script>
+</body>
+</html>
